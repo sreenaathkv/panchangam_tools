@@ -237,3 +237,11 @@ Please fix the output dir generation to {person}_ as prefix and not just {person
 
 For example, for this run 'python3 panchangam_utils.py Monday Wednesday Uthiradam Chennai "September 2026" Sreenaath --forward-looking-months 1'
 I want the output dir as 'Sreenaath_output_dir' and not 'Sreenaathoutput_dir'
+
+---
+
+## Prompt 12: Consolidated per-month tabular JSON summary
+
+1. After all per month .txt files predictions (day/times) are generated, the ask is to collate through all the predictions for the person in the output_dir, for each month and create a json or text file of consolidated tabular view, per month, across all the projected months to the user.  Do this in the main workflow, after per month results are generated and saved. Store the consoldiated view in the same "output_dir" specific to the person with the following naming convention {person}_{starting_month_year}_{forward_looking_months}.json.
+2. Create a utility function for this collation and saving logic and use this in the top level function 'fetch_favorable_month_days' or in the main function after calling 'fetch_favorable_month_days'.
+3. generate additional test cases to test this collation and saving logic

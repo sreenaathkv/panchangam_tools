@@ -1111,6 +1111,282 @@ class TestFetchFavorableMonthDaysOutputFiles(unittest.TestCase):
             self.assertEqual(len(list(person_dir.glob("*.txt"))), 1)
 
 
+class TestSplitFavorableEntryIntoRow(unittest.TestCase):
+    """Unit tests for _split_favorable_entry_into_row, the tabular-row helper
+    collate_and_save_predictions uses to turn display strings into columns.
+    """
+
+    def test_entire_day_entry(self):
+        row = pu._split_favorable_entry_into_row("January 7, 2026 - Entire day")
+        self.assertEqual(row, {"date": "January 7, 2026", "prediction": "Entire day"})
+
+    def test_until_entry(self):
+        row = pu._split_favorable_entry_into_row("January 6, 2026 - until 12:17 PM")
+        self.assertEqual(row, {"date": "January 6, 2026", "prediction": "until 12:17 PM"})
+
+    def test_from_onwards_entry(self):
+        row = pu._split_favorable_entry_into_row("January 3, 2026 - from 05:27 PM onwards")
+        self.assertEqual(row, {"date": "January 3, 2026", "prediction": "from 05:27 PM onwards"})
+
+    def test_entire_day_with_continuation_entry(self):
+        row = pu._split_favorable_entry_into_row(
+            "October 17, 2026 - Entire day (favorable until October 18, 2026 12:19 AM)"
+        )
+        self.assertEqual(
+            row,
+            {
+                "date": "October 17, 2026",
+                "prediction": "Entire day (favorable until October 18, 2026 12:19 AM)",
+            },
+        )
+
+    def test_multi_window_entry_keeps_full_remainder_as_one_prediction(self):
+        # A semicolon-joined multi-window entry isn't split any further --
+        # the whole "until X; from Y onwards" remainder is one column value.
+        row = pu._split_favorable_entry_into_row(
+            "January 1, 2026 - until 10:00 AM; from 06:00 PM onwards"
+        )
+        self.assertEqual(
+            row,
+            {"date": "January 1, 2026", "prediction": "until 10:00 AM; from 06:00 PM onwards"},
+        )
+
+
+class TestCollateAndSavePredictions(unittest.TestCase):
+    """Unit tests for the collate_and_save_predictions() utility itself, independent
+    of fetch_favorable_month_days.
+    """
+
+    def _sample_favorable_days_with_ts(self):
+        return [
+            {
+                "month": "September",
+                "year": 2026,
+                "fav_days_with_ts": [
+                    "September 4, 2026 - until 10:34 AM",
+                    "September 7, 2026 - Entire day",
+                ],
+                "output_file": "irrelevant.txt",
+            },
+            {
+                "month": "October",
+                "year": 2026,
+                "fav_days_with_ts": [],
+                "output_file": "irrelevant2.txt",
+            },
+        ]
+
+    def test_writes_json_file_with_expected_name(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_path = pu.collate_and_save_predictions(
+                "Sreenaath",
+                "Uthiradam",
+                "Sunnyvale",
+                "September 2026",
+                2,
+                tmp_dir,
+                self._sample_favorable_days_with_ts(),
+            )
+            self.assertEqual(
+                file_path,
+                Path(tmp_dir) / "Sreenaath" / "Sreenaath_September_2026_2.json",
+            )
+            self.assertTrue(file_path.exists())
+
+    def test_json_content_structure_and_metadata(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_path = pu.collate_and_save_predictions(
+                "Sreenaath",
+                "Uthiradam",
+                "Sunnyvale",
+                "September 2026",
+                2,
+                tmp_dir,
+                self._sample_favorable_days_with_ts(),
+            )
+            data = json.loads(file_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(data["person"], "Sreenaath")
+        self.assertEqual(data["input_nakshatram"], "Uthiradam")
+        self.assertEqual(data["input_city_name"], "Sunnyvale")
+        self.assertEqual(data["starting_month_year"], "September 2026")
+        self.assertEqual(data["forward_looking_months"], 2)
+        self.assertEqual(len(data["months"]), 2)
+
+    def test_tabular_rows_per_month(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_path = pu.collate_and_save_predictions(
+                "Sreenaath",
+                "Uthiradam",
+                "Sunnyvale",
+                "September 2026",
+                2,
+                tmp_dir,
+                self._sample_favorable_days_with_ts(),
+            )
+            data = json.loads(file_path.read_text(encoding="utf-8"))
+
+        september = data["months"][0]
+        self.assertEqual(september["month"], "September")
+        self.assertEqual(september["year"], 2026)
+        self.assertEqual(
+            september["favorable_days"],
+            [
+                {"date": "September 4, 2026", "prediction": "until 10:34 AM"},
+                {"date": "September 7, 2026", "prediction": "Entire day"},
+            ],
+        )
+
+    def test_month_with_no_favorable_days_gets_empty_row_list(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_path = pu.collate_and_save_predictions(
+                "Sreenaath",
+                "Uthiradam",
+                "Sunnyvale",
+                "September 2026",
+                2,
+                tmp_dir,
+                self._sample_favorable_days_with_ts(),
+            )
+            data = json.loads(file_path.read_text(encoding="utf-8"))
+
+        october = data["months"][1]
+        self.assertEqual(october["month"], "October")
+        self.assertEqual(october["favorable_days"], [])
+
+    def test_filename_sanitizes_person_and_month_year_but_content_keeps_originals(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_path = pu.collate_and_save_predictions(
+                "Sree Naath",
+                "Uthiradam",
+                "Sunnyvale",
+                "September 2026",
+                1,
+                tmp_dir,
+                [{"month": "September", "year": 2026, "fav_days_with_ts": [], "output_file": "x"}],
+            )
+            self.assertEqual(file_path.name, "Sree_Naath_September_2026_1.json")
+            self.assertEqual(file_path.parent.name, "Sree_Naath")
+            data = json.loads(file_path.read_text(encoding="utf-8"))
+        # The raw (unsanitized) person name is preserved in the file's content.
+        self.assertEqual(data["person"], "Sree Naath")
+
+    def test_lives_in_same_person_subfolder_as_monthly_txt_files(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            month_result = {
+                "month": "September",
+                "year": 2026,
+                "fav_days_with_ts": ["September 4, 2026 - until 10:34 AM"],
+            }
+            txt_path = pu._write_month_file("Sreenaath", "Uthiradam", "Sunnyvale", tmp_dir, month_result)
+            json_path = pu.collate_and_save_predictions(
+                "Sreenaath", "Uthiradam", "Sunnyvale", "September 2026", 1, tmp_dir, [month_result]
+            )
+            self.assertEqual(txt_path.parent, json_path.parent)
+
+    def test_returns_pathlib_path_pointing_to_written_file(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_path = pu.collate_and_save_predictions(
+                "Sreenaath",
+                "Uthiradam",
+                "Sunnyvale",
+                "September 2026",
+                1,
+                tmp_dir,
+                [{"month": "September", "year": 2026, "fav_days_with_ts": [], "output_file": "x"}],
+            )
+            self.assertIsInstance(file_path, Path)
+            self.assertTrue(file_path.is_file())
+
+
+class TestFetchFavorableMonthDaysCollation(unittest.TestCase):
+    """Confirms fetch_favorable_month_days wires collate_and_save_predictions into
+    its main workflow automatically, after all per-month files are saved.
+    """
+
+    def _empty_month_session(self):
+        return _FixtureSession(
+            html_by_date={}, default_html=load_fixture("chennai_2026-01-01_none.html")
+        )
+
+    def test_consolidated_file_created_alongside_monthly_files(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = fetch_favorable_month_days(
+                ["Monday"],
+                "Uthiradam",
+                "Chennai",
+                "January 2026",
+                forward_looking_months=2,
+                person="Sreenaath",
+                output_dir=tmp_dir,
+                use_cache=False,
+                request_delay_seconds=0,
+                session=self._empty_month_session(),
+            )
+            person_dir = Path(tmp_dir) / "Sreenaath"
+            consolidated_path = person_dir / "Sreenaath_January_2026_2.json"
+            self.assertTrue(consolidated_path.exists())
+            # The monthly .txt files are still there too, side by side.
+            self.assertTrue((person_dir / "January_2026.txt").exists())
+            self.assertTrue((person_dir / "February_2026.txt").exists())
+
+            data = json.loads(consolidated_path.read_text(encoding="utf-8"))
+            self.assertEqual(len(data["months"]), 2)
+
+        for month_result in result:
+            self.assertEqual(month_result["consolidated_output_file"], str(consolidated_path))
+
+    def test_consolidated_file_reflects_actual_favorable_days(self):
+        import json
+        import tempfile
+
+        session = _FixtureSession(
+            html_by_date={"03/01/2026": load_fixture("chennai_2026-01-03_from_onwards.html")},
+            default_html=load_fixture("chennai_2026-01-01_none.html"),
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            fetch_favorable_month_days(
+                ["Saturday"],
+                "Bharani",
+                "Chennai",
+                "January 2026",
+                forward_looking_months=1,
+                person="Sreenaath",
+                output_dir=tmp_dir,
+                use_cache=False,
+                request_delay_seconds=0,
+                session=session,
+            )
+            consolidated_path = Path(tmp_dir) / "Sreenaath" / "Sreenaath_January_2026_1.json"
+            data = json.loads(consolidated_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            data["months"][0]["favorable_days"],
+            [{"date": "January 3, 2026", "prediction": "from 05:27 PM onwards"}],
+        )
+
+
 SUNNYVALE_SEPTEMBER_2026_FIXTURES_DIR = FIXTURES_DIR / "sunnyvale_2026_09"
 
 
@@ -1382,6 +1658,24 @@ class TestMainFunction(unittest.TestCase):
             self.assertIn("saved to", output)
             written_file = Path(tmp_dir) / "TestCliPerson" / "January_2026.txt"
             self.assertTrue(written_file.exists())
+
+    def test_prints_and_writes_consolidated_summary(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code, output = self._run_main(
+                [
+                    "Monday", "Uthiradam", "Chennai", "January 2026", "TestCliPerson",
+                    "--forward-looking-months", "1",
+                    "--output-dir", tmp_dir,
+                    "--request-delay-seconds", "0",
+                ]
+            )
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Consolidated summary saved to", output)
+            consolidated_file = Path(tmp_dir) / "TestCliPerson" / "TestCliPerson_January_2026_1.json"
+            self.assertTrue(consolidated_file.exists())
+            self.assertIn(str(consolidated_file), output)
 
     def test_unknown_nakshatram_prints_error_and_exits_nonzero(self):
         import tempfile

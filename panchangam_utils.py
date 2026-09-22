@@ -3,6 +3,7 @@
 import argparse
 import calendar
 import functools
+import json
 import re
 import sys
 import time
@@ -729,20 +730,25 @@ def _build_favorable_entry(day_result, favorable_indices):
     return f"{label} - " + "; ".join(parts)
 
 
-def _slugify_person_name(person):
-    """Turn a person's name into a filesystem-safe folder name.
+def _slugify_for_filename(text, label="value"):
+    """Turn arbitrary text into a filesystem-safe path component.
 
     Strips anything that isn't alphanumeric/underscore/hyphen (which also
-    rules out path separators and ".." segments), so a crafted `person`
-    value can't write outside the intended output directory.
+    rules out path separators and ".." segments), so a crafted value can't
+    write outside the intended output directory.
     """
-    if not isinstance(person, str) or not person.strip():
-        raise ValueError("person must be a non-empty string")
-    slug = re.sub(r"\s+", "_", person.strip())
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(f"{label} must be a non-empty string")
+    slug = re.sub(r"\s+", "_", text.strip())
     slug = re.sub(r"[^A-Za-z0-9_-]", "", slug)
     if not slug:
-        raise ValueError(f"person name {person!r} could not be turned into a valid folder name")
+        raise ValueError(f"{label} {text!r} could not be turned into a valid filename component")
     return slug
+
+
+def _slugify_person_name(person):
+    """Turn a person's name into a filesystem-safe folder name. See _slugify_for_filename."""
+    return _slugify_for_filename(person, label="person")
 
 
 def _format_month_file_contents(person, input_nakshatram, input_city_name, month_entry):
@@ -765,6 +771,63 @@ def _write_month_file(person, input_nakshatram, input_city_name, output_dir, mon
         _format_month_file_contents(person, input_nakshatram, input_city_name, month_entry),
         encoding="utf-8",
     )
+    return file_path
+
+
+def _split_favorable_entry_into_row(entry):
+    """Split a "{date} - {prediction}" display string into {"date": ..., "prediction": ...}.
+
+    Every string _build_favorable_entry produces follows this "{date} - ..."
+    shape (see its docstring), so this is a plain, lossless split -- turning
+    the flat display strings into a uniform-columns row suitable for a table.
+    """
+    date_part, _, prediction_part = entry.partition(" - ")
+    return {"date": date_part, "prediction": prediction_part}
+
+
+def collate_and_save_predictions(
+    person, input_nakshatram, input_city_name, starting_month_year, forward_looking_months, output_dir, favorable_days_with_ts
+):
+    """Collate every forward-looking month's favorable days into one consolidated JSON file.
+
+    Reshapes `favorable_days_with_ts` (the list fetch_favorable_month_days
+    builds up, one dict per month) into a single JSON document with a
+    tabular "favorable_days" row list (columns: date, prediction) per month,
+    and writes it to
+    `{output_dir}/{slugified person}/{slugified person}_{slugified starting_month_year}_{forward_looking_months}.json`
+    (the same per-person subfolder each month's .txt file already lives in).
+
+    Returns the path the consolidated file was written to.
+    """
+    months_table = [
+        {
+            "month": month_entry["month"],
+            "year": month_entry["year"],
+            "favorable_days": [
+                _split_favorable_entry_into_row(entry) for entry in month_entry["fav_days_with_ts"]
+            ],
+        }
+        for month_entry in favorable_days_with_ts
+    ]
+
+    consolidated = {
+        "person": person,
+        "input_nakshatram": input_nakshatram,
+        "input_city_name": input_city_name,
+        "starting_month_year": starting_month_year,
+        "forward_looking_months": forward_looking_months,
+        "months": months_table,
+    }
+
+    person_dir = Path(output_dir) / _slugify_person_name(person)
+    person_dir.mkdir(parents=True, exist_ok=True)
+    file_name = (
+        f"{_slugify_person_name(person)}_"
+        f"{_slugify_for_filename(starting_month_year, label='starting_month_year')}_"
+        f"{forward_looking_months}.json"
+    )
+    file_path = person_dir / file_name
+    file_path.write_text(json.dumps(consolidated, indent=2, ensure_ascii=False), encoding="utf-8")
     return file_path
 
 
@@ -821,8 +884,16 @@ def fetch_favorable_month_days(
     relative to the current working directory). Each returned month dict
     gets an "output_file" key holding that path (a string).
 
+    Once every month has been fetched and saved, all of them are also
+    collated into one consolidated tabular JSON file (see
+    collate_and_save_predictions) at
+    `{output_dir}/{person}/{person}_{starting_month_year}_{forward_looking_months}.json`;
+    every returned month dict gets a "consolidated_output_file" key holding
+    that same path (a string).
+
     Returns a list with one entry per forward-looking month:
-        [{"month": "September", "year": 2026, "fav_days_with_ts": [...], "output_file": "..."}, ...]
+        [{"month": "September", "year": 2026, "fav_days_with_ts": [...],
+          "output_file": "...", "consolidated_output_file": "..."}, ...]
 
     Note: fetches drikpanchang.com over the network (unless already cached on disk in
     `cache_dir`), roughly one request per matching weekday per month.
@@ -866,6 +937,18 @@ def fetch_favorable_month_days(
         month_result["output_file"] = str(file_path)
 
         favorable_days_with_ts.append(month_result)
+
+    consolidated_file_path = collate_and_save_predictions(
+        person,
+        input_nakshatram,
+        input_city_name,
+        starting_month_year,
+        forward_looking_months,
+        output_dir,
+        favorable_days_with_ts,
+    )
+    for month_result in favorable_days_with_ts:
+        month_result["consolidated_output_file"] = str(consolidated_file_path)
 
     return favorable_days_with_ts
 
@@ -977,6 +1060,8 @@ def main(argv=None):
         else:
             print("  No favorable days found.")
         print(f"  (saved to {month_result['output_file']})")
+
+    print(f"Consolidated summary saved to {results[0]['consolidated_output_file']}")
 
     return 0
 
