@@ -1,5 +1,6 @@
 """Utilities for working with the 27 Hindu Nakshatras (lunar mansions)."""
 
+import argparse
 import calendar
 import functools
 import re
@@ -774,20 +775,27 @@ def fetch_favorable_month_days(
     starting_month_year,
     forward_looking_months=12,
     *,
+    person,
+    output_dir=None,
     use_cache=True,
     cache_dir=None,
     request_delay_seconds=_DEFAULT_REQUEST_DELAY_SECONDS,
     session=None,
     city_chooser=None,
     interactive=True,
-    person=None,
-    output_dir=None,
 ):
     """Find favorable days, on given weekdays, over a forward-looking window of months.
 
-    Every parameter after `forward_looking_months` is keyword-only (pass
-    them as e.g. `person="..."`, not positionally) -- call with
-    `fetch_favorable_month_days(days, nakshatram, city, month_year, N, person="...", output_dir="...")`.
+    `person` is mandatory. It, and every other parameter after
+    `forward_looking_months`, is keyword-only (pass them as e.g.
+    `person="..."`, not positionally) -- call with
+    `fetch_favorable_month_days(days, nakshatram, city, month_year, N, person="...")`.
+    (`person` can't be a plain positional parameter placed right after
+    `forward_looking_months`, since `forward_looking_months` has a default
+    value and Python doesn't allow a required parameter to follow a
+    defaulted one in the same positional group -- keyword-only sidesteps
+    that while still making `person` mandatory and keeping it right after
+    `forward_looking_months` in the signature.)
 
     For each of `forward_looking_months` months starting at `starting_month_year`,
     checks every date falling on one of `fav_days_of_week` (e.g. ["Monday", "Wednesday"])
@@ -806,17 +814,15 @@ def fetch_favorable_month_days(
     one; otherwise AmbiguousCityError is raised with the full candidate list. See
     resolve_geoname_id for details.
 
-    `person` (the name of the individual these results are for) and `output_dir`
-    are both optional and independent of the core computation: pass `output_dir`
-    to additionally persist the results to disk, as one text file per
+    Results are always additionally persisted to disk, as one text file per
     forward-looking month, under `{output_dir}/{person}/{Month}_{Year}.txt`
-    (`person` is sanitized into a safe folder name and is required whenever
-    `output_dir` is given, since it names the subfolder). Each returned
-    month dict gets an "output_file" key holding that path (a string), or
-    None when `output_dir` wasn't given.
+    (`person` is sanitized into a safe folder name for that subfolder). If
+    `output_dir` isn't given, it defaults to `f"{person}_output_dir"` (a path
+    relative to the current working directory). Each returned month dict
+    gets an "output_file" key holding that path (a string).
 
     Returns a list with one entry per forward-looking month:
-        [{"month": "September", "year": 2026, "fav_days_with_ts": [...], "output_file": None}, ...]
+        [{"month": "September", "year": 2026, "fav_days_with_ts": [...], "output_file": "..."}, ...]
 
     Note: fetches drikpanchang.com over the network (unless already cached on disk in
     `cache_dir`), roughly one request per matching weekday per month.
@@ -825,8 +831,10 @@ def fetch_favorable_month_days(
         raise ValueError("fav_days_of_week must be a non-empty list of weekday names")
     weekday_names = [_normalize_weekday_name(day) for day in fav_days_of_week]
 
-    if output_dir is not None and not (isinstance(person, str) and person.strip()):
-        raise ValueError("person must be a non-empty string when output_dir is given")
+    if not isinstance(person, str) or not person.strip():
+        raise ValueError("person must be a non-empty string")
+    if output_dir is None:
+        output_dir = f"{person}_output_dir"
 
     favorable_indices = favorable_nakshatram_indices(input_nakshatram)
     geoname_id = resolve_geoname_id(input_city_name, chooser=city_chooser, interactive=interactive)
@@ -853,12 +861,126 @@ def fetch_favorable_month_days(
             "month": calendar.month_name[month],
             "year": year,
             "fav_days_with_ts": month_entries,
-            "output_file": None,
         }
-        if output_dir is not None:
-            file_path = _write_month_file(person, input_nakshatram, input_city_name, output_dir, month_result)
-            month_result["output_file"] = str(file_path)
+        file_path = _write_month_file(person, input_nakshatram, input_city_name, output_dir, month_result)
+        month_result["output_file"] = str(file_path)
 
         favorable_days_with_ts.append(month_result)
 
     return favorable_days_with_ts
+
+
+# ---------------------------------------------------------------------------
+# Command-line interface: `python3 panchangam_utils.py ...`
+# ---------------------------------------------------------------------------
+
+
+def _build_arg_parser():
+    parser = argparse.ArgumentParser(
+        prog="panchangam_utils.py",
+        description=(
+            "Find favorable days (by nakshatram + Tamil Yogam) on given weekdays, over a "
+            "forward-looking window of months, for a person's nakshatram and city."
+        ),
+    )
+    parser.add_argument(
+        "fav_days_of_week",
+        nargs="+",
+        metavar="WEEKDAY",
+        help='Favorable weekday name(s), space-separated, e.g. Monday Wednesday Friday.',
+    )
+    parser.add_argument("input_nakshatram", help='Nakshatram name, e.g. "Uthiradam".')
+    parser.add_argument(
+        "input_city_name",
+        help='City name, e.g. "Sunnyvale" or "Springfield, IL" to disambiguate.',
+    )
+    parser.add_argument("starting_month_year", help='Starting month and year, e.g. "September 2026".')
+    parser.add_argument("person", help="Name of the individual these results are for.")
+    parser.add_argument(
+        "--forward-looking-months",
+        type=int,
+        default=12,
+        help="Number of months to look ahead, starting at starting_month_year (default: 12).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help='Directory to write results to (default: "{person}_output_dir", relative to the '
+        "current directory).",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Directory to cache fetched drikpanchang pages in (default: panchang_cache/ next "
+        "to this file).",
+    )
+    parser.add_argument(
+        "--no-cache",
+        dest="use_cache",
+        action="store_false",
+        default=True,
+        help="Disable the on-disk drikpanchang page cache.",
+    )
+    parser.add_argument(
+        "--request-delay-seconds",
+        type=float,
+        default=_DEFAULT_REQUEST_DELAY_SECONDS,
+        help=f"Delay between live drikpanchang requests, in seconds (default: {_DEFAULT_REQUEST_DELAY_SECONDS}).",
+    )
+    parser.add_argument(
+        "--non-interactive",
+        dest="interactive",
+        action="store_false",
+        default=True,
+        help="Don't prompt to disambiguate an ambiguous city name; raise an error instead.",
+    )
+    return parser
+
+
+def main(argv=None):
+    """CLI entry point: `python3 panchangam_utils.py WEEKDAY [WEEKDAY ...] NAKSHATRAM CITY MONTH_YEAR PERSON [options]`.
+
+    Wires argparse straight onto fetch_favorable_month_days's parameters,
+    prints a per-month summary of favorable days to stdout, and reports
+    which file each month's results were also saved to. Returns a process
+    exit code (0 on success, 1 on a recognized error) rather than raising,
+    so `sys.exit(main())` at the bottom of this file gives a clean CLI
+    error message instead of a raw traceback for expected failure modes
+    (bad input, an unresolvable/ambiguous city, or drikpanchang rate-limiting).
+    """
+    args = _build_arg_parser().parse_args(argv)
+
+    try:
+        results = fetch_favorable_month_days(
+            args.fav_days_of_week,
+            args.input_nakshatram,
+            args.input_city_name,
+            args.starting_month_year,
+            args.forward_looking_months,
+            person=args.person,
+            output_dir=args.output_dir,
+            use_cache=args.use_cache,
+            cache_dir=args.cache_dir,
+            request_delay_seconds=args.request_delay_seconds,
+            interactive=args.interactive,
+        )
+    except (ValueError, DrikPanchangBlockedError) as exc:
+        # ValueError also covers AmbiguousCityError, a subclass.
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    for month_result in results:
+        print(f"{month_result['month']} {month_result['year']}:")
+        if month_result["fav_days_with_ts"]:
+            for entry in month_result["fav_days_with_ts"]:
+                print(f"  {entry}")
+        else:
+            print("  No favorable days found.")
+        print(f"  (saved to {month_result['output_file']})")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+

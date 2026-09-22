@@ -211,3 +211,29 @@ This is the test comand used --
 >>> import panchangam_utils as pu
 >>> pu.fetch_favorable_month_days(["Wednesday", "Friday", "Saturday", "Monday"], "Uthiradam", "Sunnyvale", "September 2026", 1, "sreenaath", "output_results")
 ```
+
+---
+
+## Prompt 9: Move person right after forward_looking_months (mandatory), default output_dir from person
+
+1. Can you move the two arguments "person" right after the "forward_looking_months" argument in the fetch_favorable_month_days() function ? Make it mandatory argument and make the corresponding changes in the test file too and test them out.
+2. If "output_dir" argument is not provided, make the necessary code change to assume "output_dir" value by appending "output_dir" string to the "person" argument string to make the "output_dir" value relative to the current directory. Make the test changes and additional test case to make this change and verify
+
+---
+
+## Prompt 10: Add a CLI (main) to run fetch_favorable_month_days from the command line
+
+generate the code necessary to execute from main..iow, execute the python function 'fetch_favorable_month_days()' directory by executing the file panchangam_utils like 'python3 fetch_favorable_month_days.py ' with all mandatory fields from the command line.
+
+Make the code changes necessary in main function in python, by usign appriiate classes like ArgumentParser and marking optional parameters, where needed.
+
+Also generate, alter test cases to invoke both from the cli and the function fetch_favorable_month_days() directly from another python script.
+
+---
+
+## Prompt 11: Fix default output_dir prefix to {person}_ instead of {person}
+
+Please fix the output dir generation to {person}_ as prefix and not just {person} prefix.
+
+For example, for this run 'python3 panchangam_utils.py Monday Wednesday Uthiradam Chennai "September 2026" Sreenaath --forward-looking-months 1'
+I want the output dir as 'Sreenaath_output_dir' and not 'Sreenaathoutput_dir'

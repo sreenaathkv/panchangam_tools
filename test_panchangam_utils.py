@@ -619,17 +619,22 @@ class TestFetchFavorableMonthDaysIntegration(unittest.TestCase):
         )
 
     def test_aggregates_favorable_days_for_one_month(self):
+        import tempfile
+
         session = self._january_2026_saturday_session()
-        result = fetch_favorable_month_days(
-            ["Saturday"],
-            "Uthiradam",
-            "Chennai",
-            "January 2026",
-            forward_looking_months=1,
-            use_cache=False,
-            request_delay_seconds=0,
-            session=session,
-        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = fetch_favorable_month_days(
+                ["Saturday"],
+                "Uthiradam",
+                "Chennai",
+                "January 2026",
+                forward_looking_months=1,
+                person="TestPerson",
+                output_dir=tmp_dir,
+                use_cache=False,
+                request_delay_seconds=0,
+                session=session,
+            )
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["month"], "January")
         self.assertEqual(result[0]["year"], 2026)
@@ -645,18 +650,23 @@ class TestFetchFavorableMonthDaysIntegration(unittest.TestCase):
         self.assertEqual(len(session.requested_dates), 5)
 
     def test_forward_looking_months_count_matches_request(self):
+        import tempfile
+
         none_html = load_fixture("chennai_2026-01-01_none.html")
         session = _FixtureSession(html_by_date={}, default_html=none_html)
-        result = fetch_favorable_month_days(
-            ["Monday"],
-            "Uthiradam",
-            "Chennai",
-            "November 2026",
-            forward_looking_months=4,
-            use_cache=False,
-            request_delay_seconds=0,
-            session=session,
-        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = fetch_favorable_month_days(
+                ["Monday"],
+                "Uthiradam",
+                "Chennai",
+                "November 2026",
+                forward_looking_months=4,
+                person="TestPerson",
+                output_dir=tmp_dir,
+                use_cache=False,
+                request_delay_seconds=0,
+                session=session,
+            )
         self.assertEqual(len(result), 4)
         self.assertEqual(
             [(m["month"], m["year"]) for m in result],
@@ -666,23 +676,28 @@ class TestFetchFavorableMonthDaysIntegration(unittest.TestCase):
         self.assertEqual(result[0]["fav_days_with_ts"], [])
 
     def test_default_forward_looking_months_is_12(self):
+        import tempfile
+
         none_html = load_fixture("chennai_2026-01-01_none.html")
         session = _FixtureSession(html_by_date={}, default_html=none_html)
-        result = fetch_favorable_month_days(
-            ["Monday"],
-            "Uthiradam",
-            "Chennai",
-            "January 2026",
-            use_cache=False,
-            request_delay_seconds=0,
-            session=session,
-        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = fetch_favorable_month_days(
+                ["Monday"],
+                "Uthiradam",
+                "Chennai",
+                "January 2026",
+                person="TestPerson",
+                output_dir=tmp_dir,
+                use_cache=False,
+                request_delay_seconds=0,
+                session=session,
+            )
         self.assertEqual(len(result), 12)
 
     def test_disk_cache_avoids_repeat_network_calls(self):
         import tempfile
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory() as cache_tmp_dir, tempfile.TemporaryDirectory() as output_tmp_dir:
             session = self._january_2026_saturday_session()
             first = fetch_favorable_month_days(
                 ["Saturday"],
@@ -690,12 +705,14 @@ class TestFetchFavorableMonthDaysIntegration(unittest.TestCase):
                 "Chennai",
                 "January 2026",
                 forward_looking_months=1,
+                person="TestPerson",
+                output_dir=output_tmp_dir,
                 use_cache=True,
-                cache_dir=tmp_dir,
+                cache_dir=cache_tmp_dir,
                 request_delay_seconds=0,
                 session=session,
             )
-            cached_files = list(Path(tmp_dir).glob("*.html"))
+            cached_files = list(Path(cache_tmp_dir).glob("*.html"))
             self.assertEqual(len(cached_files), 5)
 
             second = fetch_favorable_month_days(
@@ -704,8 +721,10 @@ class TestFetchFavorableMonthDaysIntegration(unittest.TestCase):
                 "Chennai",
                 "January 2026",
                 forward_looking_months=1,
+                person="TestPerson",
+                output_dir=output_tmp_dir,
                 use_cache=True,
-                cache_dir=tmp_dir,
+                cache_dir=cache_tmp_dir,
                 request_delay_seconds=0,
                 session=_FailingSession(),
             )
@@ -714,31 +733,38 @@ class TestFetchFavorableMonthDaysIntegration(unittest.TestCase):
     def test_empty_fav_days_of_week_raises_value_error(self):
         with self.assertRaises(ValueError):
             fetch_favorable_month_days(
-                [], "Uthiradam", "Chennai", "January 2026", session=_FailingSession()
+                [], "Uthiradam", "Chennai", "January 2026", person="Test", session=_FailingSession()
             )
 
     def test_unknown_weekday_raises_value_error(self):
         with self.assertRaises(ValueError):
             fetch_favorable_month_days(
-                ["Someday"], "Uthiradam", "Chennai", "January 2026", session=_FailingSession()
+                ["Someday"], "Uthiradam", "Chennai", "January 2026", person="Test", session=_FailingSession()
             )
 
     def test_unknown_nakshatram_raises_value_error(self):
         with self.assertRaises(ValueError):
             fetch_favorable_month_days(
-                ["Monday"], "NotARealNakshatra", "Chennai", "January 2026", session=_FailingSession()
+                ["Monday"], "NotARealNakshatra", "Chennai", "January 2026", person="Test", session=_FailingSession()
             )
 
     def test_unknown_city_raises_value_error(self):
         with self.assertRaises(ValueError):
             fetch_favorable_month_days(
-                ["Monday"], "Uthiradam", "Zzzznotarealcity", "January 2026", session=_FailingSession()
+                ["Monday"], "Uthiradam", "Zzzznotarealcity", "January 2026", person="Test", session=_FailingSession()
             )
 
     def test_bad_month_year_format_raises_value_error(self):
         with self.assertRaises(ValueError):
             fetch_favorable_month_days(
-                ["Monday"], "Uthiradam", "Chennai", "not a month", session=_FailingSession()
+                ["Monday"], "Uthiradam", "Chennai", "not a month", person="Test", session=_FailingSession()
+            )
+
+    def test_missing_person_raises_type_error(self):
+        # person is a mandatory keyword-only argument.
+        with self.assertRaises(TypeError):
+            fetch_favorable_month_days(
+                ["Monday"], "Uthiradam", "Chennai", "January 2026", session=_FailingSession()
             )
 
     def test_ambiguous_city_raises_before_any_network_request(self):
@@ -750,39 +776,50 @@ class TestFetchFavorableMonthDaysIntegration(unittest.TestCase):
                 "Uthiradam",
                 "Springfield",
                 "January 2026",
+                person="Test",
                 interactive=False,
                 session=_FailingSession(),
             )
 
     def test_ambiguous_city_resolved_via_qualifier(self):
+        import tempfile
+
         none_html = load_fixture("chennai_2026-01-01_none.html")
         session = _FixtureSession(html_by_date={}, default_html=none_html)
-        result = fetch_favorable_month_days(
-            ["Monday"],
-            "Uthiradam",
-            "Springfield, IL",
-            "January 2026",
-            forward_looking_months=1,
-            use_cache=False,
-            request_delay_seconds=0,
-            session=session,
-        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = fetch_favorable_month_days(
+                ["Monday"],
+                "Uthiradam",
+                "Springfield, IL",
+                "January 2026",
+                forward_looking_months=1,
+                person="TestPerson",
+                output_dir=tmp_dir,
+                use_cache=False,
+                request_delay_seconds=0,
+                session=session,
+            )
         self.assertEqual(len(result), 1)
 
     def test_ambiguous_city_resolved_via_chooser(self):
+        import tempfile
+
         none_html = load_fixture("chennai_2026-01-01_none.html")
         session = _FixtureSession(html_by_date={}, default_html=none_html)
-        result = fetch_favorable_month_days(
-            ["Monday"],
-            "Uthiradam",
-            "Springfield",
-            "January 2026",
-            forward_looking_months=1,
-            use_cache=False,
-            request_delay_seconds=0,
-            session=session,
-            city_chooser=lambda candidates: next(c for c in candidates if c["admin1code"] == "MO"),
-        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = fetch_favorable_month_days(
+                ["Monday"],
+                "Uthiradam",
+                "Springfield",
+                "January 2026",
+                forward_looking_months=1,
+                person="TestPerson",
+                output_dir=tmp_dir,
+                use_cache=False,
+                request_delay_seconds=0,
+                session=session,
+                city_chooser=lambda candidates: next(c for c in candidates if c["admin1code"] == "MO"),
+            )
         self.assertEqual(len(result), 1)
 
 
@@ -847,8 +884,25 @@ class TestFetchFavorableMonthDaysOutputFiles(unittest.TestCase):
                 ["Monday"], "Uthiradam", "Chennai", "January 2026", 1, "sreenaath", "output_results"
             )
 
-    def test_output_dir_requires_person(self):
+    def test_person_must_be_a_non_empty_string(self):
         with self.assertRaises(ValueError):
+            fetch_favorable_month_days(
+                ["Monday"],
+                "Uthiradam",
+                "Chennai",
+                "January 2026",
+                forward_looking_months=1,
+                person="   ",
+                use_cache=False,
+                request_delay_seconds=0,
+                session=self._empty_month_session(),
+            )
+
+    def test_missing_person_raises_type_error(self):
+        # person has no default -- omitting it entirely must fail loudly,
+        # rather than e.g. silently defaulting to None and blowing up later
+        # (or worse, succeeding with a nonsensical folder name).
+        with self.assertRaises(TypeError):
             fetch_favorable_month_days(
                 ["Monday"],
                 "Uthiradam",
@@ -858,10 +912,73 @@ class TestFetchFavorableMonthDaysOutputFiles(unittest.TestCase):
                 use_cache=False,
                 request_delay_seconds=0,
                 session=self._empty_month_session(),
-                output_dir="/tmp/should-not-be-used",
             )
 
-    def test_no_output_dir_means_no_files_and_none_output_file(self):
+    def test_omitting_output_dir_defaults_to_person_plus_output_dir_suffix(self):
+        # Regression/feature test: when output_dir isn't given, it must
+        # default to f"{person}_output_dir", a path relative to the current
+        # working directory -- not silently skip writing (the old behavior)
+        # and not require output_dir to be given explicitly.
+        import os
+        import tempfile
+
+        original_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            os.chdir(tmp_dir)
+            try:
+                result = fetch_favorable_month_days(
+                    ["Monday"],
+                    "Uthiradam",
+                    "Chennai",
+                    "January 2026",
+                    forward_looking_months=1,
+                    person="sreenaath",
+                    use_cache=False,
+                    request_delay_seconds=0,
+                    session=self._empty_month_session(),
+                )
+            finally:
+                os.chdir(original_cwd)
+
+            expected_dir = Path(tmp_dir) / "sreenaath_output_dir" / "sreenaath"
+            self.assertTrue(expected_dir.is_dir())
+            expected_file = expected_dir / "January_2026.txt"
+            self.assertTrue(expected_file.exists())
+            # output_file is recorded as given to Path() -- since the default
+            # output_dir is a relative string, the recorded path stays
+            # relative (to whatever the cwd was at call time) too.
+            self.assertEqual(
+                result[0]["output_file"],
+                str(Path("sreenaath_output_dir") / "sreenaath" / "January_2026.txt"),
+            )
+
+    def test_default_output_dir_is_relative_not_absolute(self):
+        import os
+        import tempfile
+
+        original_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            os.chdir(tmp_dir)
+            try:
+                fetch_favorable_month_days(
+                    ["Monday"],
+                    "Uthiradam",
+                    "Chennai",
+                    "January 2026",
+                    forward_looking_months=1,
+                    person="sreenaath",
+                    use_cache=False,
+                    request_delay_seconds=0,
+                    session=self._empty_month_session(),
+                )
+            finally:
+                os.chdir(original_cwd)
+
+            # Nothing should have leaked outside the current directory at
+            # the time of the call.
+            self.assertFalse((Path(tmp_dir).parent / "sreenaath_output_dir").exists())
+
+    def test_explicit_output_dir_still_takes_precedence_over_default(self):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -871,13 +988,16 @@ class TestFetchFavorableMonthDaysOutputFiles(unittest.TestCase):
                 "Chennai",
                 "January 2026",
                 forward_looking_months=1,
+                person="sreenaath",
+                output_dir=tmp_dir,
                 use_cache=False,
                 request_delay_seconds=0,
                 session=self._empty_month_session(),
             )
-            self.assertIsNone(result[0]["output_file"])
-            # Nothing should have been written anywhere real either.
-            self.assertEqual(list(Path(tmp_dir).iterdir()), [])
+            self.assertEqual(
+                result[0]["output_file"], str(Path(tmp_dir) / "sreenaath" / "January_2026.txt")
+            )
+            self.assertFalse((Path.cwd() / "sreenaath_output_dir").exists())
 
     def test_writes_one_file_per_forward_looking_month(self):
         import tempfile
@@ -1026,6 +1146,12 @@ class TestSunnyvaleSeptember2026Regression(unittest.TestCase):
     and deterministic.
     """
 
+    def setUp(self):
+        import tempfile
+
+        self._output_tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._output_tmp_dir.cleanup)
+
     def _session(self):
         html_by_date = {}
         for path in SUNNYVALE_SEPTEMBER_2026_FIXTURES_DIR.glob("*.html"):
@@ -1040,6 +1166,8 @@ class TestSunnyvaleSeptember2026Regression(unittest.TestCase):
             "Sunnyvale",
             "September 2026",
             1,
+            person="TestPerson",
+            output_dir=self._output_tmp_dir.name,
             use_cache=False,
             request_delay_seconds=0,
             session=self._session(),
@@ -1073,6 +1201,8 @@ class TestSunnyvaleSeptember2026Regression(unittest.TestCase):
             "Sunnyvale",
             "September 2026",
             1,
+            person="TestPerson",
+            output_dir=self._output_tmp_dir.name,
             use_cache=False,
             request_delay_seconds=0,
             session=self._session(),
@@ -1090,6 +1220,8 @@ class TestSunnyvaleSeptember2026Regression(unittest.TestCase):
             "Sunnyvale",
             "September 2026",
             1,
+            person="TestPerson",
+            output_dir=self._output_tmp_dir.name,
             use_cache=False,
             request_delay_seconds=0,
             session=self._session(),
@@ -1104,6 +1236,8 @@ class TestSunnyvaleSeptember2026Regression(unittest.TestCase):
             "Sunnyvale",
             "September 2026",
             1,
+            person="TestPerson",
+            output_dir=self._output_tmp_dir.name,
             use_cache=False,
             request_delay_seconds=0,
             session=self._session(),
@@ -1121,15 +1255,20 @@ class TestFetchFavorableMonthDaysLiveSmoke(unittest.TestCase):
     """
 
     def test_single_month_single_weekday_against_live_site(self):
+        import tempfile
+
         try:
-            result = fetch_favorable_month_days(
-                ["Sunday"],
-                "Uthiradam",
-                "Chennai",
-                "December 2030",
-                forward_looking_months=1,
-                request_delay_seconds=2.5,
-            )
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                result = fetch_favorable_month_days(
+                    ["Sunday"],
+                    "Uthiradam",
+                    "Chennai",
+                    "December 2030",
+                    forward_looking_months=1,
+                    person="TestPerson",
+                    output_dir=tmp_dir,
+                    request_delay_seconds=2.5,
+                )
         except DrikPanchangBlockedError as exc:
             self.skipTest(f"drikpanchang.com rate-limited this run: {exc}")
         except Exception as exc:  # network errors, DNS failures, etc.
@@ -1143,6 +1282,260 @@ class TestFetchFavorableMonthDaysLiveSmoke(unittest.TestCase):
             self.assertTrue(
                 entry.startswith("December") and ("Entire day" in entry or "until" in entry or "onwards" in entry)
             )
+
+
+class TestArgParser(unittest.TestCase):
+    """Pure argparse wiring tests -- no network, no filesystem."""
+
+    def test_parses_required_positional_arguments(self):
+        args = pu._build_arg_parser().parse_args(
+            ["Monday", "Uthiradam", "Chennai", "January 2026", "Sreenaath"]
+        )
+        self.assertEqual(args.fav_days_of_week, ["Monday"])
+        self.assertEqual(args.input_nakshatram, "Uthiradam")
+        self.assertEqual(args.input_city_name, "Chennai")
+        self.assertEqual(args.starting_month_year, "January 2026")
+        self.assertEqual(args.person, "Sreenaath")
+
+    def test_multiple_weekdays_consumed_before_fixed_positionals(self):
+        args = pu._build_arg_parser().parse_args(
+            ["Monday", "Wednesday", "Friday", "Uthiradam", "Chennai", "January 2026", "Sreenaath"]
+        )
+        self.assertEqual(args.fav_days_of_week, ["Monday", "Wednesday", "Friday"])
+        self.assertEqual(args.input_nakshatram, "Uthiradam")
+        self.assertEqual(args.person, "Sreenaath")
+
+    def test_defaults_match_function_defaults(self):
+        args = pu._build_arg_parser().parse_args(
+            ["Monday", "Uthiradam", "Chennai", "January 2026", "Sreenaath"]
+        )
+        self.assertEqual(args.forward_looking_months, 12)
+        self.assertIsNone(args.output_dir)
+        self.assertIsNone(args.cache_dir)
+        self.assertTrue(args.use_cache)
+        self.assertEqual(args.request_delay_seconds, pu._DEFAULT_REQUEST_DELAY_SECONDS)
+        self.assertTrue(args.interactive)
+
+    def test_optional_flags_override_defaults(self):
+        args = pu._build_arg_parser().parse_args(
+            [
+                "Monday", "Uthiradam", "Chennai", "January 2026", "Sreenaath",
+                "--forward-looking-months", "3",
+                "--output-dir", "/tmp/somewhere",
+                "--cache-dir", "/tmp/cache",
+                "--no-cache",
+                "--request-delay-seconds", "0",
+                "--non-interactive",
+            ]
+        )
+        self.assertEqual(args.forward_looking_months, 3)
+        self.assertEqual(args.output_dir, "/tmp/somewhere")
+        self.assertEqual(args.cache_dir, "/tmp/cache")
+        self.assertFalse(args.use_cache)
+        self.assertEqual(args.request_delay_seconds, 0)
+        self.assertFalse(args.interactive)
+
+    def test_missing_required_argument_exits_nonzero(self):
+        import contextlib
+        import io
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                # Missing person (and everything else).
+                pu._build_arg_parser().parse_args(["Monday", "Uthiradam", "Chennai"])
+        self.assertNotEqual(ctx.exception.code, 0)
+
+
+class TestMainFunction(unittest.TestCase):
+    """Tests for the `main(argv)` CLI entry point, called in-process (not via subprocess).
+
+    Uses the project's real on-disk drikpanchang cache (`panchang_cache/`,
+    which already has January 2026 fully cached for Chennai from earlier
+    development/testing) so these run offline and fast, without needing a
+    fake session (main() has no way to inject one, unlike
+    fetch_favorable_month_days itself).
+    """
+
+    def _run_main(self, argv):
+        import contextlib
+        import io
+
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            exit_code = pu.main(argv)
+        return exit_code, stdout.getvalue()
+
+    def test_successful_run_prints_favorable_days_and_exits_zero(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code, output = self._run_main(
+                [
+                    "Monday", "Uthiradam", "Chennai", "January 2026", "TestCliPerson",
+                    "--forward-looking-months", "1",
+                    "--output-dir", tmp_dir,
+                    "--request-delay-seconds", "0",
+                ]
+            )
+            self.assertEqual(exit_code, 0)
+            self.assertIn("January 2026:", output)
+            self.assertIn("saved to", output)
+            written_file = Path(tmp_dir) / "TestCliPerson" / "January_2026.txt"
+            self.assertTrue(written_file.exists())
+
+    def test_unknown_nakshatram_prints_error_and_exits_nonzero(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code, output = self._run_main(
+                [
+                    "Monday", "NotARealNakshatra", "Chennai", "January 2026", "TestCliPerson",
+                    "--forward-looking-months", "1",
+                    "--output-dir", tmp_dir,
+                    "--request-delay-seconds", "0",
+                ]
+            )
+            self.assertEqual(exit_code, 1)
+
+    def test_ambiguous_city_non_interactive_exits_nonzero(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code, output = self._run_main(
+                [
+                    "Monday", "Uthiradam", "Springfield", "January 2026", "TestCliPerson",
+                    "--forward-looking-months", "1",
+                    "--output-dir", tmp_dir,
+                    "--request-delay-seconds", "0",
+                    "--non-interactive",
+                ]
+            )
+            self.assertEqual(exit_code, 1)
+
+    def test_output_dir_defaults_when_omitted(self):
+        import os
+        import tempfile
+
+        original_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            os.chdir(tmp_dir)
+            try:
+                exit_code, output = self._run_main(
+                    [
+                        "Monday", "Uthiradam", "Chennai", "January 2026", "TestCliPerson",
+                        "--forward-looking-months", "1",
+                        "--request-delay-seconds", "0",
+                    ]
+                )
+            finally:
+                os.chdir(original_cwd)
+            self.assertEqual(exit_code, 0)
+            expected_file = Path(tmp_dir) / "TestCliPerson_output_dir" / "TestCliPerson" / "January_2026.txt"
+            self.assertTrue(expected_file.exists())
+
+
+class TestFetchFavorableMonthDaysDirectInvocation(unittest.TestCase):
+    """Confirms fetch_favorable_month_days() works when imported and called directly
+    from another Python script/module (as opposed to via the CLI), using the same
+    real on-disk cache as TestMainFunction.
+    """
+
+    def test_direct_call_from_importing_module(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = fetch_favorable_month_days(
+                ["Monday"],
+                "Uthiradam",
+                "Chennai",
+                "January 2026",
+                forward_looking_months=1,
+                person="TestScriptPerson",
+                output_dir=tmp_dir,
+                request_delay_seconds=0,
+            )
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0]["month"], "January")
+            written_file = Path(tmp_dir) / "TestScriptPerson" / "January_2026.txt"
+            self.assertTrue(written_file.exists())
+            self.assertEqual(result[0]["output_file"], str(written_file))
+
+
+class TestCliSubprocess(unittest.TestCase):
+    """Genuine end-to-end test: runs `python3 panchangam_utils.py ...` as a real
+    subprocess, exactly as a user would from a shell. Uses the project's real
+    on-disk drikpanchang cache so it doesn't hit the network.
+    """
+
+    def test_cli_invocation_writes_output_file_and_prints_summary(self):
+        import subprocess
+        import sys
+        import tempfile
+
+        script_path = Path(pu.__file__).resolve()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(script_path),
+                    "Monday",
+                    "Uthiradam",
+                    "Chennai",
+                    "January 2026",
+                    "SubprocessPerson",
+                    "--forward-looking-months", "1",
+                    "--output-dir", tmp_dir,
+                    "--request-delay-seconds", "0",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+            self.assertIn("January 2026:", completed.stdout)
+            written_file = Path(tmp_dir) / "SubprocessPerson" / "January_2026.txt"
+            self.assertTrue(written_file.exists())
+
+    def test_cli_invocation_with_bad_input_exits_nonzero_with_error_message(self):
+        import subprocess
+        import sys
+        import tempfile
+
+        script_path = Path(pu.__file__).resolve()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(script_path),
+                    "Monday",
+                    "NotARealNakshatra",
+                    "Chennai",
+                    "January 2026",
+                    "SubprocessPerson",
+                    "--forward-looking-months", "1",
+                    "--output-dir", tmp_dir,
+                    "--request-delay-seconds", "0",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("Unknown nakshatra", completed.stderr)
+
+    def test_cli_help_exits_zero(self):
+        import subprocess
+        import sys
+
+        script_path = Path(pu.__file__).resolve()
+        completed = subprocess.run(
+            [sys.executable, str(script_path), "--help"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("usage:", completed.stdout)
 
 
 if __name__ == "__main__":
